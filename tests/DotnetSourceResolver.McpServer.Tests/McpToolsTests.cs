@@ -132,14 +132,22 @@ public class McpToolsTests : IAsyncDisposable
     // -------------------------------------------------------------------------
 
     [Fact]
-    public async Task ToolsList_ContainsBothTools()
+    public async Task ToolsList_ContainsResolveTool()
     {
         var client = await GetClientAsync();
         var tools = await client.ListToolsAsync();
 
         var names = tools.Select(t => t.Name).ToList();
         Assert.Contains("resolve_dotnet_source", names);
-        Assert.Contains("explain_dotnet_implementation", names);
+    }
+
+    [Fact]
+    public async Task ToolsList_DoesNotContainExplainTool()
+    {
+        var client = await GetClientAsync();
+        var tools = await client.ListToolsAsync();
+
+        Assert.DoesNotContain(tools, t => t.Name == "explain_dotnet_implementation");
     }
 
     // -------------------------------------------------------------------------
@@ -218,65 +226,6 @@ public class McpToolsTests : IAsyncDisposable
     }
 
     // -------------------------------------------------------------------------
-    // explain_dotnet_implementation
-    // -------------------------------------------------------------------------
-
-    [Fact]
-    public async Task ExplainDotnetImplementation_ValidInput_ReturnsAnswer()
-    {
-        var client = await GetClientAsync();
-        var tools = await client.ListToolsAsync();
-        var tool = tools.First(t => t.Name == "explain_dotnet_implementation");
-
-        var callResult = await tool.CallAsync(
-            new Dictionary<string, object?>
-            {
-                ["symbol"] = "System.String",
-                ["question"] = "How is string interning implemented?",
-            }
-        );
-
-        Assert.True(callResult.IsError != true);
-        var json = GetTextContent(callResult);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        Assert.True(root.TryGetProperty("Answer", out var answer));
-        Assert.False(string.IsNullOrWhiteSpace(answer.GetString()));
-        Assert.True(root.TryGetProperty("Evidence", out _));
-        Assert.True(root.TryGetProperty("Confidence", out _));
-    }
-
-    [Fact]
-    public async Task ExplainDotnetImplementation_ResultHasExpectedShape()
-    {
-        var client = await GetClientAsync();
-        var tools = await client.ListToolsAsync();
-        var tool = tools.First(t => t.Name == "explain_dotnet_implementation");
-
-        var callResult = await tool.CallAsync(
-            new Dictionary<string, object?>
-            {
-                ["symbol"] = "System.String",
-                ["question"] = "What is this?",
-            }
-        );
-
-        Assert.True(callResult.IsError != true);
-        var json = GetTextContent(callResult);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        Assert.True(root.TryGetProperty("Symbol", out _));
-        Assert.True(root.TryGetProperty("Question", out _));
-        Assert.True(root.TryGetProperty("Resolved", out _));
-        Assert.True(root.TryGetProperty("Answer", out _));
-        Assert.True(root.TryGetProperty("Evidence", out _));
-        Assert.True(root.TryGetProperty("Caveats", out _));
-        Assert.True(root.TryGetProperty("ResolverVersion", out _));
-    }
-
-    // -------------------------------------------------------------------------
     // ServerInstructions
     // -------------------------------------------------------------------------
 
@@ -288,11 +237,10 @@ public class McpToolsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task ServerInstructions_MentionsKeyTools()
+    public async Task ServerInstructions_MentionsResolveTool()
     {
         var client = await GetClientAsync();
         Assert.Contains("resolve_dotnet_source", client.ServerInstructions);
-        Assert.Contains("explain_dotnet_implementation", client.ServerInstructions);
     }
 
     [Fact]

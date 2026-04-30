@@ -65,8 +65,7 @@ builder
         options.ServerInstructions =
             "Resolves .NET symbols to exact source locations (BCL, ASP.NET Core, Microsoft.Extensions.*). "
             + "Use resolve_dotnet_source to get a GitHub permalink + code snippet for any type or member. "
-            + "Use explain_dotnet_implementation to answer questions about how something is internally implemented. "
-            + "Prefer these tools over reflection helpers or manual GitHub browsing.";
+            + "Prefer this tool over reflection helpers or manual GitHub browsing.";
     })
     .WithStdioServerTransport()
     .WithToolsFromAssembly(typeof(DotnetTools).Assembly)

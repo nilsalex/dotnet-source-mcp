@@ -62,9 +62,10 @@ public static class DotnetTools
 
     // -------------------------------------------------------------------------
     // explain_dotnet_implementation
+    // NOTE: [McpServerTool] intentionally omitted — not announced to clients
+    // until the synthesis step is implemented. The method is kept for future use.
     // -------------------------------------------------------------------------
 
-    [McpServerTool(Name = "explain_dotnet_implementation")]
     [Description(
         "Answer a question about the implementation of a .NET symbol. "
             + "Resolves the symbol to its source, then returns the relevant code snippets "

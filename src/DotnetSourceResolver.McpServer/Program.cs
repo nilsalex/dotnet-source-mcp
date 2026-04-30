@@ -1,9 +1,11 @@
 using DotnetSourceResolver.Core.Resolution;
 using DotnetSourceResolver.Core.Sources;
+using DotnetSourceResolver.McpServer.Prompts;
 using DotnetSourceResolver.McpServer.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Protocol;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -53,9 +55,22 @@ builder.Services.AddSingleton(sp => new DotNetSourceResolver(
 
 // Register MCP server (stdio transport)
 builder
-    .Services.AddMcpServer()
+    .Services.AddMcpServer(options =>
+    {
+        options.ServerInfo = new Implementation
+        {
+            Name = "dotnet-source-resolver",
+            Version = DotnetSourceResolver.Core.ResolverVersionProvider.Version,
+        };
+        options.ServerInstructions =
+            "Resolves .NET symbols to exact source locations (BCL, ASP.NET Core, Microsoft.Extensions.*). "
+            + "Use resolve_dotnet_source to get a GitHub permalink + code snippet for any type or member. "
+            + "Use explain_dotnet_implementation to answer questions about how something is internally implemented. "
+            + "Prefer these tools over reflection helpers or manual GitHub browsing.";
+    })
     .WithStdioServerTransport()
-    .WithToolsFromAssembly(typeof(DotnetTools).Assembly);
+    .WithToolsFromAssembly(typeof(DotnetTools).Assembly)
+    .WithPromptsFromAssembly(typeof(DotnetPrompts).Assembly);
 
 var app = builder.Build();
 

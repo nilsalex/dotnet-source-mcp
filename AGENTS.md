@@ -53,12 +53,21 @@ The site has no public JSON API. The adapter does 4 HTTP fetches per resolution:
 
 `DotnetSourceResolver.Core` exposes `internal` helpers to the test project via `InternalsVisibleToAttribute` in the `.csproj` (not in `AssemblyInfo.cs`). The LSP often reports false "inaccessible" errors for these — `dotnet build` is the source of truth.
 
+## MCP server metadata
+
+Agent-facing context is provided through two mechanisms — keep both accurate when changing scope or tool behaviour:
+
+- **`McpServerOptions.ServerInstructions`** — sent in the `initialize` response; MCP clients inject it as a system message. Set in `McpServer/Program.cs` via `AddMcpServer(options => { ... })`.
+- **`prompts/list`** — the `lookup_dotnet_symbol` prompt in `McpServer/Prompts/DotnetPrompts.cs` gives agents a structured entry point. Registered via `.WithPromptsFromAssembly(typeof(DotnetPrompts).Assembly)`.
+- **Tool `[Description(...)]` attributes** — the only per-tool structured signal the model sees; live in `McpServer/Tools/DotnetTools.cs`.
+
 ## MCP SDK quirks
 
 - Package: `ModelContextProtocol` v1.2.0 (not `ModelContextProtocol.Core`)
 - `McpServer` conflicts with the project namespace `DotnetSourceResolver.McpServer` — alias it: `using McpServerType = ModelContextProtocol.Server.McpServer;`
 - Use `tool.CallAsync(IReadOnlyDictionary<string,object?>)` in tests — **not** `InvokeAsync` (which requires `AIFunctionArguments`)
 - Read tool result text with `result.Content.OfType<TextContentBlock>().First().Text`
+- `PromptMessage.Content` is a single `ContentBlock` (not a list) — cast directly: `(TextContentBlock)result.Messages[0].Content`
 - All logging must go to **stderr** (`LogToStandardErrorThreshold = LogLevel.Trace`) so it does not corrupt the stdout MCP stream
 
 ## System.CommandLine v3 API (CLI project)

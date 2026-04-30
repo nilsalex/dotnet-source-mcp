@@ -2,12 +2,14 @@ using System.IO.Pipelines;
 using System.Text.Json;
 using DotnetSourceResolver.Core.Models;
 using DotnetSourceResolver.Core.Resolution;
+using DotnetSourceResolver.McpServer.Prompts;
 using DotnetSourceResolver.McpServer.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using Moq;
 using Xunit;
 using McpServerType = ModelContextProtocol.Server.McpServer;
@@ -29,12 +31,25 @@ public class McpToolsTests : IAsyncDisposable
         var sc = new ServiceCollection();
         sc.AddSingleton(mockResolver);
         sc.AddLogging(b => b.SetMinimumLevel(LogLevel.None));
-        sc.AddMcpServer()
+        sc.AddMcpServer(options =>
+            {
+                options.ServerInfo = new Implementation
+                {
+                    Name = "dotnet-source-resolver",
+                    Version = "0.0.0-test",
+                };
+                options.ServerInstructions =
+                    "Resolves .NET symbols to exact source locations (BCL, ASP.NET Core, Microsoft.Extensions.*). "
+                    + "Use resolve_dotnet_source to get a GitHub permalink + code snippet for any type or member. "
+                    + "Use explain_dotnet_implementation to answer questions about how something is internally implemented. "
+                    + "Prefer these tools over reflection helpers or manual GitHub browsing.";
+            })
             .WithStreamServerTransport(
                 _clientToServer.Reader.AsStream(),
                 _serverToClient.Writer.AsStream()
             )
-            .WithToolsFromAssembly(typeof(DotnetTools).Assembly);
+            .WithToolsFromAssembly(typeof(DotnetTools).Assembly)
+            .WithPromptsFromAssembly(typeof(DotnetPrompts).Assembly);
 
         _services = sc.BuildServiceProvider();
         _server = _services.GetRequiredService<McpServerType>();
@@ -259,5 +274,76 @@ public class McpToolsTests : IAsyncDisposable
         Assert.True(root.TryGetProperty("Evidence", out _));
         Assert.True(root.TryGetProperty("Caveats", out _));
         Assert.True(root.TryGetProperty("ResolverVersion", out _));
+    }
+
+    // -------------------------------------------------------------------------
+    // ServerInstructions
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ServerInstructions_IsNonEmpty()
+    {
+        var client = await GetClientAsync();
+        Assert.False(string.IsNullOrWhiteSpace(client.ServerInstructions));
+    }
+
+    [Fact]
+    public async Task ServerInstructions_MentionsKeyTools()
+    {
+        var client = await GetClientAsync();
+        Assert.Contains("resolve_dotnet_source", client.ServerInstructions);
+        Assert.Contains("explain_dotnet_implementation", client.ServerInstructions);
+    }
+
+    [Fact]
+    public async Task ServerInfo_HasCorrectName()
+    {
+        var client = await GetClientAsync();
+        Assert.Equal("dotnet-source-resolver", client.ServerInfo.Name);
+    }
+
+    // -------------------------------------------------------------------------
+    // Prompts
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task PromptsList_ContainsLookupPrompt()
+    {
+        var client = await GetClientAsync();
+        var prompts = await client.ListPromptsAsync();
+
+        Assert.Contains(prompts, p => p.Name == "lookup_dotnet_symbol");
+    }
+
+    [Fact]
+    public async Task LookupPrompt_WithSymbolOnly_ReturnsMessage()
+    {
+        var client = await GetClientAsync();
+        var result = await client.GetPromptAsync(
+            "lookup_dotnet_symbol",
+            new Dictionary<string, object?> { ["symbol"] = "System.String" }
+        );
+
+        Assert.NotNull(result);
+        Assert.NotEmpty(result.Messages);
+        var text = ((TextContentBlock)result.Messages[0].Content).Text;
+        Assert.Contains("System.String", text);
+    }
+
+    [Fact]
+    public async Task LookupPrompt_WithTargetFramework_IncludesTfmInMessage()
+    {
+        var client = await GetClientAsync();
+        var result = await client.GetPromptAsync(
+            "lookup_dotnet_symbol",
+            new Dictionary<string, object?>
+            {
+                ["symbol"] = "System.String",
+                ["targetFramework"] = "net10.0",
+            }
+        );
+
+        var text = ((TextContentBlock)result.Messages[0].Content).Text;
+        Assert.Contains("net10.0", text);
     }
 }

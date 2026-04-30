@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DotnetSourceResolver.Cli/DotnetSourceResolver.Cli.csproj" />
+    <Project Path="src/DotnetSourceResolver.Core/DotnetSourceResolver.Core.csproj" />
+    <Project Path="src/DotnetSourceResolver.McpServer/DotnetSourceResolver.McpServer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DotnetSourceResolver.Core.Tests/DotnetSourceResolver.Core.Tests.csproj" />
+    <Project Path="tests/DotnetSourceResolver.McpServer.Tests/DotnetSourceResolver.McpServer.Tests.csproj" />
+  </Folder>
+</Solution>

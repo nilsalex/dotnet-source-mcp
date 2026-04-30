@@ -11,6 +11,81 @@ namespace DotnetSourceResolver.Core.Tests.Sources;
 public class SourceDotNetAdapterTests
 {
     // -------------------------------------------------------------------------
+    // HTML builder helper — mimics the real source.dot.net result block structure
+    // -------------------------------------------------------------------------
+
+    private static string ResultBlock(
+        string project,
+        string hash,
+        string kind,
+        string description
+    ) =>
+        $"""
+            <a href="/{project}/A.html#{hash}" target="s"><div class="resultItem"><div class="resultLine">
+            <div class="resultKind">{kind}</div></div>
+            <div class="resultDescription">{description}</div>
+            </div></a>
+            """;
+
+    // -------------------------------------------------------------------------
+    // ScoreResult
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(
+        "System.Collections.Generic.Dictionary",
+        "class",
+        "System.Collections.Generic.Dictionary",
+        13
+    )] // exact + class(3) = 10+3
+    [InlineData(
+        "System.Collections.Generic.Dictionary<TKey, TValue>",
+        "class",
+        "System.Collections.Generic.Dictionary",
+        13
+    )] // generic stripped
+    [InlineData(
+        "System.Collections.Generic.Dictionary",
+        "property",
+        "System.Collections.Generic.Dictionary",
+        11
+    )] // exact + property(1) = 10+1
+    [InlineData(
+        "System.Collections.Generic.Dictionary.AlternateLookup",
+        "class",
+        "System.Collections.Generic.Dictionary",
+        9
+    )] // starts-with + class = 6+3
+    [InlineData(
+        "System.Collections.Generic.DictionaryExtensions",
+        "class",
+        "System.Collections.Generic.Dictionary",
+        0
+    )] // no match (Extensions ≠ exact suffix)
+    [InlineData(
+        "System.Collections.Generic.AlternateLookup.Dictionary",
+        "property",
+        "System.Collections.Generic.Dictionary",
+        1
+    )] // ends-with + property = 0+1
+    [InlineData(
+        "System.Collections.Generic.AlternateLookup.Dictionary",
+        "class",
+        "System.Collections.Generic.Dictionary",
+        3
+    )] // ends-with + class = 0+3
+    public void ScoreResult_ReturnsExpectedScore(
+        string description,
+        string kind,
+        string symbol,
+        int expectedScore
+    )
+    {
+        var score = SourceDotNetAdapter.ScoreResult(description, kind, symbol);
+        Assert.Equal(expectedScore, score);
+    }
+
+    // -------------------------------------------------------------------------
     // PickBestResult
     // -------------------------------------------------------------------------
 
@@ -28,29 +103,91 @@ public class SourceDotNetAdapterTests
     [Fact]
     public void PickBestResult_SingleResult_ReturnsThatResult()
     {
-        var html = """
-            <a href="/System.Private.CoreLib/A.html#d3599058f8d79be0" target="s">
-            <div class="resultDescription">System.Collections.Generic.Dictionary</div>
-            """;
-        var (project, hash) = SourceDotNetAdapter.PickBestResult(html, "Dictionary");
-        Assert.Equal("System.Private.CoreLib", project);
-        Assert.Equal("d3599058f8d79be0", hash);
-    }
-
-    [Fact]
-    public void PickBestResult_ExactNameMatch_PreferredOverFirst()
-    {
-        var html = """
-            <a href="/System.Collections/A.html#aaaaaaaaaaaaaaa1" target="s">
-            <div class="resultDescription">System.Collections.SomethingElse</div>
-            <a href="/System.Private.CoreLib/A.html#d3599058f8d79be0" target="s">
-            <div class="resultDescription">System.Collections.Generic.Dictionary</div>
-            """;
+        var html = ResultBlock(
+            "System.Private.CoreLib",
+            "d3599058f8d79be0",
+            "class",
+            "System.Collections.Generic.Dictionary"
+        );
         var (project, hash) = SourceDotNetAdapter.PickBestResult(
             html,
             "System.Collections.Generic.Dictionary"
         );
         Assert.Equal("System.Private.CoreLib", project);
+        Assert.Equal("d3599058f8d79be0", hash);
+    }
+
+    [Fact]
+    public void PickBestResult_ClassPreferredOverPropertyWithSameName()
+    {
+        // Regression: "Dictionary" property inside AlternateLookup must lose to the class declaration.
+        var html =
+            ResultBlock(
+                "System.Private.CoreLib",
+                "fe4061361a1c71fc",
+                "property",
+                "System.Collections.Generic.Dictionary&lt;TKey, TValue&gt;.AlternateLookup&lt;TAlternateKey&gt;.Dictionary"
+            )
+            + ResultBlock(
+                "System.Private.CoreLib",
+                "d3599058f8d79be0",
+                "class",
+                "System.Collections.Generic.Dictionary&lt;TKey, TValue&gt;"
+            );
+
+        var (project, hash) = SourceDotNetAdapter.PickBestResult(
+            html,
+            "System.Collections.Generic.Dictionary"
+        );
+        Assert.Equal("System.Private.CoreLib", project);
+        Assert.Equal("d3599058f8d79be0", hash);
+    }
+
+    [Fact]
+    public void PickBestResult_ExactMatchPreferredOverPartialMatch()
+    {
+        var html =
+            ResultBlock(
+                "System.Collections",
+                "aaaaaaaaaaaaaaa1",
+                "class",
+                "System.Collections.SomethingElse"
+            )
+            + ResultBlock(
+                "System.Private.CoreLib",
+                "d3599058f8d79be0",
+                "class",
+                "System.Collections.Generic.Dictionary"
+            );
+        var (project, hash) = SourceDotNetAdapter.PickBestResult(
+            html,
+            "System.Collections.Generic.Dictionary"
+        );
+        Assert.Equal("System.Private.CoreLib", project);
+        Assert.Equal("d3599058f8d79be0", hash);
+    }
+
+    [Fact]
+    public void PickBestResult_DictionaryExtensions_DoesNotMatchDictionary()
+    {
+        // "DictionaryExtensions" should not be treated as an exact match for "Dictionary"
+        var html =
+            ResultBlock(
+                "System.Collections",
+                "aaaaaaaaaaaaaaaa",
+                "class",
+                "System.Collections.Generic.DictionaryExtensions"
+            )
+            + ResultBlock(
+                "System.Private.CoreLib",
+                "d3599058f8d79be0",
+                "class",
+                "System.Collections.Generic.Dictionary"
+            );
+        var (project, hash) = SourceDotNetAdapter.PickBestResult(
+            html,
+            "System.Collections.Generic.Dictionary"
+        );
         Assert.Equal("d3599058f8d79be0", hash);
     }
 
@@ -230,10 +367,12 @@ public class SourceDotNetAdapterTests
     [Fact]
     public async Task TryResolveAsync_HappyPath_ReturnsResult()
     {
-        var searchHtml = """
-            <a href="/System.Private.CoreLib/A.html#d3599058f8d79be0" target="s">
-            <div class="resultDescription">System.Collections.Generic.Dictionary</div>
-            """;
+        var searchHtml = ResultBlock(
+            "System.Private.CoreLib",
+            "d3599058f8d79be0",
+            "class",
+            "System.Collections.Generic.Dictionary"
+        );
         var bucketHtml = """
             var f = [
             "src/libraries/System.Private.CoreLib/src/System/Collections/Generic/Dictionary.cs",

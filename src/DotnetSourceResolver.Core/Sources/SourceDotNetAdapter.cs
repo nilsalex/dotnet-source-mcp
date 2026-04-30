@@ -20,16 +20,16 @@ public sealed class SourceDotNetAdapter : ISourceAdapter
 {
     private const string BaseUrl = "https://source.dot.net";
 
-    // Matches:  <a href="/ProjectName/A.html#symbolhash" target="s">
-    private static readonly Regex ResultLinkRegex = new(
-        @"href=""/([\w.]+)/A\.html#([0-9a-f]{16})""",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase
-    );
-
-    // Matches the resultDescription for a fully-qualified type
-    private static readonly Regex ResultDescriptionRegex = new(
-        @"<div class=""resultDescription"">([^<]+)</div>",
-        RegexOptions.Compiled
+    // Matches one full result block: href + kind + description in order.
+    // Each result in the HTML looks like:
+    //   <a href="/Project/A.html#hash" ...>
+    //     <div class="resultKind">class</div>
+    //     ...
+    //     <div class="resultDescription">Fully.Qualified.Name</div>
+    //   </a>
+    private static readonly Regex ResultBlockRegex = new(
+        @"href=""/([\w.]+)/A\.html#([0-9a-f]{16})""[^>]*>.*?<div class=""resultKind"">(\w+)</div>.*?<div class=""resultDescription"">([^<]+)</div>",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline
     );
 
     // Matches: m["7hexchars"]=f[N];
@@ -158,28 +158,96 @@ public sealed class SourceDotNetAdapter : ISourceAdapter
     // Internal helpers (internal for testing)
     // -------------------------------------------------------------------------
 
+    // Kind preference: type declarations rank above members.
+    private static readonly IReadOnlyDictionary<string, int> KindScore = new Dictionary<
+        string,
+        int
+    >(StringComparer.OrdinalIgnoreCase)
+    {
+        ["class"] = 3,
+        ["struct"] = 3,
+        ["interface"] = 3,
+        ["enum"] = 3,
+        ["delegate"] = 3,
+        ["method"] = 2,
+        ["property"] = 1,
+        ["field"] = 1,
+        ["event"] = 1,
+    };
+
     internal static (string? project, string? hash) PickBestResult(string html, string symbol)
     {
-        var matches = ResultLinkRegex.Matches(html);
-        if (matches.Count == 0)
+        var blocks = ResultBlockRegex.Matches(html);
+        if (blocks.Count == 0)
             return (null, null);
 
-        // Pair each result link with its description
-        var descriptions = ResultDescriptionRegex.Matches(html);
+        // Normalise the requested symbol for comparison:
+        //   "System.Collections.Generic.Dictionary" → normalised prefix to match against description
+        var symbolNorm = symbol.Trim();
 
-        // Score: prefer exact symbol name match in description
-        var symbolShort = symbol.Contains('.') ? symbol[(symbol.LastIndexOf('.') + 1)..] : symbol;
+        string? bestProject = null;
+        string? bestHash = null;
+        int bestScore = -1;
 
-        // Try to find a class/type entry whose description ends with the symbol
-        for (int i = 0; i < matches.Count && i < descriptions.Count; i++)
+        foreach (Match block in blocks)
         {
-            var desc = descriptions[i].Groups[1].Value;
-            if (desc.TrimEnd('>').EndsWith(symbolShort, StringComparison.OrdinalIgnoreCase))
-                return (matches[i].Groups[1].Value, matches[i].Groups[2].Value);
+            var project = block.Groups[1].Value;
+            var hash = block.Groups[2].Value;
+            var kind = block.Groups[3].Value;
+            var desc = block.Groups[4].Value; // fully-qualified, may contain &lt; entities
+
+            // Decode the two HTML entities that appear in generic descriptions
+            desc = desc.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&amp;", "&");
+
+            int score = ScoreResult(desc, kind, symbolNorm);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestProject = project;
+                bestHash = hash;
+            }
         }
 
-        // Fall back to first result
-        return (matches[0].Groups[1].Value, matches[0].Groups[2].Value);
+        return (bestProject, bestHash);
+    }
+
+    /// <summary>
+    /// Scores a single search result against the requested symbol.
+    /// Higher is better; 0 means "no useful signal" (will still win if nothing better exists).
+    /// </summary>
+    internal static int ScoreResult(string description, string kind, string symbol)
+    {
+        // Strip generic parameters for comparison: "Dictionary<TKey, TValue>" → "Dictionary"
+        var descBase = description.Contains('<')
+            ? description[..description.IndexOf('<')]
+            : description;
+
+        var symbolBase = symbol.Contains('<') ? symbol[..symbol.IndexOf('<')] : symbol;
+
+        int kindPriority = KindScore.TryGetValue(kind, out var k) ? k : 0;
+
+        // Score 10: exact full description match (e.g. "System.Collections.Generic.Dictionary")
+        if (descBase.Equals(symbolBase, StringComparison.OrdinalIgnoreCase))
+            return 10 + kindPriority;
+
+        // Score 6: description starts with the full symbol (catches "Symbol.NestedType")
+        // but only when the char after is a dot — avoids "DictionaryExtensions" matching "Dictionary"
+        if (
+            descBase.StartsWith(symbolBase, StringComparison.OrdinalIgnoreCase)
+            && descBase.Length > symbolBase.Length
+            && descBase[symbolBase.Length] == '.'
+        )
+            return 6 + kindPriority;
+
+        // Score 3+kind: description ends with the short name AND is a type declaration
+        var symbolShort = symbolBase.Contains('.')
+            ? symbolBase[(symbolBase.LastIndexOf('.') + 1)..]
+            : symbolBase;
+
+        if (descBase.EndsWith(symbolShort, StringComparison.OrdinalIgnoreCase))
+            return kindPriority; // 0-3 depending on kind
+
+        return 0;
     }
 
     internal static string? ResolveFilePathFromBucket(string bucketHtml, string symbolHash)

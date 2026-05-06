@@ -139,7 +139,8 @@ public class NuGetAdapterTests
                     && r.RequestUri.Host.Equals(
                         "raw.githubusercontent.com",
                         StringComparison.OrdinalIgnoreCase
-                    )),
+                    )
+                ),
                 ItExpr.IsAny<CancellationToken>()
             )
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
@@ -217,6 +218,118 @@ public class NuGetAdapterTests
             downloader,
             extractor,
             matcher,
+            locator,
+            github,
+            NullLogger<NuGetAdapter>.Instance
+        );
+
+        return (adapter, cacheDir);
+    }
+
+    private static (NuGetAdapter adapter, string cacheDir) BuildAdapterWithNoSourceLinkFallback(
+        string cacheDir,
+        HttpStatusCode headStatusCode = HttpStatusCode.NotFound,
+        string? treeJson = null,
+        RepositoryMetadata? repoMeta = null
+    )
+    {
+        var meta = repoMeta ?? ValidRepoMeta;
+        var nuspecXml = BuildNuSpecXml(meta);
+
+        var nuspecHttpHandler = new Mock<HttpMessageHandler>();
+        nuspecHttpHandler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>()
+            )
+            .ReturnsAsync(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(nuspecXml),
+                }
+            );
+        var nuspec = new NuSpecRepository(
+            new System.Net.Http.HttpClient(nuspecHttpHandler.Object),
+            NullLogger<NuSpecRepository>.Instance
+        );
+
+        var downloaderHttpHandler = new Mock<HttpMessageHandler>();
+        downloaderHttpHandler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>()
+            )
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+        var downloader = new NuGetPackageDownloader(
+            new System.Net.Http.HttpClient(downloaderHttpHandler.Object),
+            NullLogger<NuGetPackageDownloader>.Instance,
+            new CacheConfiguration { CacheDirectory = cacheDir }
+        );
+
+        var ghHandler = new Mock<HttpMessageHandler>();
+        ghHandler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Head),
+                ItExpr.IsAny<CancellationToken>()
+            )
+            .ReturnsAsync(new HttpResponseMessage(headStatusCode));
+        ghHandler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Get),
+                ItExpr.IsAny<CancellationToken>()
+            )
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+        var github = new GitHubAdapter(
+            new System.Net.Http.HttpClient(ghHandler.Object),
+            NullLogger<GitHubAdapter>.Instance
+        );
+
+        var locatorHandler = new Mock<HttpMessageHandler>();
+        if (treeJson is not null)
+        {
+            locatorHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(treeJson),
+                    }
+                );
+        }
+        else
+        {
+            locatorHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
+        var locator = new GitHubFileLocator(
+            new System.Net.Http.HttpClient(locatorHandler.Object),
+            NullLogger<GitHubFileLocator>.Instance
+        );
+
+        var adapter = new NuGetAdapter(
+            nuspec,
+            downloader,
+            new SourceLinkExtractor(NullLogger<SourceLinkExtractor>.Instance),
+            new SourceLinkMatcher(NullLogger<SourceLinkMatcher>.Instance),
             locator,
             github,
             NullLogger<NuGetAdapter>.Instance
@@ -356,6 +469,378 @@ public class NuGetAdapterTests
     }
 
     // -------------------------------------------------------------------------
+    // No-Source-Link fallback tests
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task TryResolveAsync_NoSourceLink_HeadHit_ReturnsHighConfidence()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"nuget-nosl-headhit-{Guid.NewGuid()}");
+        try
+        {
+            var (adapter, _) = BuildAdapterWithNoSourceLinkFallback(
+                cacheDir,
+                headStatusCode: HttpStatusCode.OK,
+                treeJson: null
+            );
+
+            var result = await adapter.TryResolveAsync(MakeRequest(), default);
+
+            Assert.NotNull(result);
+            Assert.True(result.Resolved);
+            Assert.Equal(ResolutionConfidence.High, result.Confidence);
+            Assert.Single(result.Sources);
+            Assert.NotEmpty(result.Sources[0].Path);
+            Assert.NotEmpty(result.Sources[0].Url);
+            Assert.Contains("github.com", result.Sources[0].Url);
+            Assert.DoesNotContain("/tree/", result.Sources[0].Url);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_NoSourceLink_HeadMissTreeHit_ReturnsHighConfidence()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"nuget-nosl-treehit-{Guid.NewGuid()}");
+        try
+        {
+            var treeJson = """
+                {
+                  "sha": "abc",
+                  "tree": [
+                    { "path": "src/Shared/DefaultUserService.cs", "type": "blob" },
+                    { "path": "test/DefaultUserServiceTests.cs", "type": "blob" }
+                  ]
+                }
+                """;
+
+            var (adapter, _) = BuildAdapterWithNoSourceLinkFallback(
+                cacheDir,
+                headStatusCode: HttpStatusCode.NotFound,
+                treeJson: treeJson
+            );
+
+            var result = await adapter.TryResolveAsync(MakeRequest(), default);
+
+            Assert.NotNull(result);
+            Assert.True(result.Resolved);
+            Assert.Equal(ResolutionConfidence.High, result.Confidence);
+            Assert.Single(result.Sources);
+            Assert.NotEmpty(result.Sources[0].Path);
+            Assert.Contains("DefaultUserService.cs", result.Sources[0].Path);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_NoSourceLink_AllMiss_ReturnsMediumConfidence()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"nuget-nosl-allmiss-{Guid.NewGuid()}");
+        try
+        {
+            var (adapter, _) = BuildAdapterWithNoSourceLinkFallback(
+                cacheDir,
+                headStatusCode: HttpStatusCode.NotFound,
+                treeJson: null
+            );
+
+            var result = await adapter.TryResolveAsync(MakeRequest(), default);
+
+            Assert.NotNull(result);
+            Assert.True(result.Resolved);
+            Assert.Equal(ResolutionConfidence.Medium, result.Confidence);
+            Assert.Single(result.Sources);
+            Assert.Empty(result.Sources[0].Path);
+            Assert.Contains("/tree/", result.Sources[0].Url);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_NoSourceLink_NonGitHubRepo_ReturnsLowConfidence()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"nuget-nosl-nongh-{Guid.NewGuid()}");
+        try
+        {
+            var azureMeta = new RepositoryMetadata(
+                Url: "https://dev.azure.com/myorg/myproject",
+                Commit: "abc123",
+                Branch: null,
+                Type: "tfsgit"
+            );
+
+            var (adapter, _) = BuildAdapterWithNoSourceLinkFallback(
+                cacheDir,
+                headStatusCode: HttpStatusCode.NotFound,
+                treeJson: null,
+                repoMeta: azureMeta
+            );
+
+            var result = await adapter.TryResolveAsync(MakeRequest(), default);
+
+            Assert.NotNull(result);
+            Assert.Equal(ResolutionConfidence.Low, result.Confidence);
+            Assert.Empty(result.Sources[0].Path);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_NoSourceLink_NoCommit_ReturnsMediumConfidence()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"nuget-nosl-nocommit-{Guid.NewGuid()}");
+        try
+        {
+            var noCommitMeta = new RepositoryMetadata(
+                Url: RepoUrl,
+                Commit: null,
+                Branch: null,
+                Type: "git"
+            );
+
+            var (adapter, _) = BuildAdapterWithNoSourceLinkFallback(
+                cacheDir,
+                headStatusCode: HttpStatusCode.NotFound,
+                treeJson: null,
+                repoMeta: noCommitMeta
+            );
+
+            var result = await adapter.TryResolveAsync(MakeRequest(), default);
+
+            Assert.NotNull(result);
+            Assert.Equal(ResolutionConfidence.Medium, result.Confidence);
+            Assert.Empty(result.Sources[0].Path);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_NoSourceLink_TreeRateLimited_ReturnsMediumConfidence()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"nuget-nosl-ratelimit-{Guid.NewGuid()}");
+        try
+        {
+            var nuspecXml = BuildNuSpecXml(ValidRepoMeta);
+            var nuspecHttpHandler = new Mock<HttpMessageHandler>();
+            nuspecHttpHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(nuspecXml),
+                    }
+                );
+            var nuspec = new NuSpecRepository(
+                new System.Net.Http.HttpClient(nuspecHttpHandler.Object),
+                NullLogger<NuSpecRepository>.Instance
+            );
+
+            var downloaderHttpHandler = new Mock<HttpMessageHandler>();
+            downloaderHttpHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+            var downloader = new NuGetPackageDownloader(
+                new System.Net.Http.HttpClient(downloaderHttpHandler.Object),
+                NullLogger<NuGetPackageDownloader>.Instance,
+                new CacheConfiguration { CacheDirectory = cacheDir }
+            );
+
+            var ghHandler = new Mock<HttpMessageHandler>();
+            ghHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Head),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+            ghHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Get),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+            var github = new GitHubAdapter(
+                new System.Net.Http.HttpClient(ghHandler.Object),
+                NullLogger<GitHubAdapter>.Instance
+            );
+
+            var locatorHandler = new Mock<HttpMessageHandler>();
+            locatorHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage((HttpStatusCode)403));
+            var locator = new GitHubFileLocator(
+                new System.Net.Http.HttpClient(locatorHandler.Object),
+                NullLogger<GitHubFileLocator>.Instance
+            );
+
+            var adapter = new NuGetAdapter(
+                nuspec,
+                downloader,
+                new SourceLinkExtractor(NullLogger<SourceLinkExtractor>.Instance),
+                new SourceLinkMatcher(NullLogger<SourceLinkMatcher>.Instance),
+                locator,
+                github,
+                NullLogger<NuGetAdapter>.Instance
+            );
+
+            var result = await adapter.TryResolveAsync(MakeRequest(), default);
+
+            Assert.NotNull(result);
+            Assert.Equal(ResolutionConfidence.Medium, result.Confidence);
+            Assert.Empty(result.Sources[0].Path);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TryResolveAsync_NoSourceLink_WithSnippets_FetchesFromGitHub()
+    {
+        var cacheDir = Path.Combine(Path.GetTempPath(), $"nuget-nosl-snippet-{Guid.NewGuid()}");
+        try
+        {
+            var nuspecXml = BuildNuSpecXml(ValidRepoMeta);
+            var nuspecHttpHandler = new Mock<HttpMessageHandler>();
+            nuspecHttpHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(nuspecXml),
+                    }
+                );
+            var nuspec = new NuSpecRepository(
+                new System.Net.Http.HttpClient(nuspecHttpHandler.Object),
+                NullLogger<NuSpecRepository>.Instance
+            );
+
+            var downloaderHttpHandler = new Mock<HttpMessageHandler>();
+            downloaderHttpHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+            var downloader = new NuGetPackageDownloader(
+                new System.Net.Http.HttpClient(downloaderHttpHandler.Object),
+                NullLogger<NuGetPackageDownloader>.Instance,
+                new CacheConfiguration { CacheDirectory = cacheDir }
+            );
+
+            var ghHandler = new Mock<HttpMessageHandler>();
+            ghHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Head),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK));
+            ghHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.Is<HttpRequestMessage>(r => r.Method == HttpMethod.Get),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent("line1\nline2\nline3"),
+                    }
+                );
+            var github = new GitHubAdapter(
+                new System.Net.Http.HttpClient(ghHandler.Object),
+                NullLogger<GitHubAdapter>.Instance
+            );
+
+            var locatorHandler = new Mock<HttpMessageHandler>();
+            locatorHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+            var locator = new GitHubFileLocator(
+                new System.Net.Http.HttpClient(locatorHandler.Object),
+                NullLogger<GitHubFileLocator>.Instance
+            );
+
+            var adapter = new NuGetAdapter(
+                nuspec,
+                downloader,
+                new SourceLinkExtractor(NullLogger<SourceLinkExtractor>.Instance),
+                new SourceLinkMatcher(NullLogger<SourceLinkMatcher>.Instance),
+                locator,
+                github,
+                NullLogger<NuGetAdapter>.Instance
+            );
+
+            var result = await adapter.TryResolveAsync(MakeRequest(includeSnippets: true), default);
+
+            Assert.NotNull(result);
+            Assert.True(result.Resolved);
+            Assert.Equal(ResolutionConfidence.High, result.Confidence);
+            Assert.Single(result.Snippets);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Full pipeline tests (need a real DLL with embedded PDB)
     // -------------------------------------------------------------------------
 
@@ -386,8 +871,12 @@ public class NuGetAdapterTests
         Directory.CreateDirectory(cacheDir);
         var assemblyPath = CreateAssemblyWithSourceLink(cacheDir);
 
-        var (adapter, adapterCacheDir) = BuildAdapter(ValidRepoMeta, assemblyPath, ValidSourceLink,
-            locatorFilePath: "src/Duende/BFF/DefaultUserService.cs");
+        var (adapter, adapterCacheDir) = BuildAdapter(
+            ValidRepoMeta,
+            assemblyPath,
+            ValidSourceLink,
+            locatorFilePath: "src/Duende/BFF/DefaultUserService.cs"
+        );
         try
         {
             var result = await adapter.TryResolveAsync(

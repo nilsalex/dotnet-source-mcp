@@ -342,7 +342,8 @@ public class NuGetAdapter : ISourceAdapter
     private async Task<SourceFileLocation?> TryLocateWithoutSourceLinkAsync(
         SymbolRequest request,
         RepositoryMetadata repoMeta,
-        CancellationToken ct)
+        CancellationToken ct
+    )
     {
         if (repoMeta.Url is null || repoMeta.Commit is null)
             return null;
@@ -379,10 +380,7 @@ public class NuGetAdapter : ISourceAdapter
             if (!exists)
                 continue;
 
-            _logger.LogInformation(
-                "No-Source-Link fallback: HEAD confirmed {Url}",
-                rawUrl
-            );
+            _logger.LogInformation("No-Source-Link fallback: HEAD confirmed {Url}", rawUrl);
 
             return new SourceFileLocation(
                 Repository: repoMeta.Url,
@@ -536,7 +534,8 @@ public class NuGetAdapter : ISourceAdapter
     private async Task<SourceResult> BuildResultWithSnippetAsync(
         SymbolRequest request,
         SourceFileLocation location,
-        CancellationToken ct)
+        CancellationToken ct
+    )
     {
         if (request.IncludeSnippets)
         {

@@ -345,17 +345,14 @@ public class NuGetAdapter : ISourceAdapter
         CancellationToken ct
     )
     {
-        if (repoMeta.Url is null || repoMeta.Commit is null)
+        if (string.IsNullOrEmpty(repoMeta.Url) || string.IsNullOrEmpty(repoMeta.Commit))
             return null;
 
         if (!TryParseGitHubRepoUrl(repoMeta.Url, out var owner, out var repo))
             return null;
 
-        if (owner is null || repo is null)
-            return null;
-
         var commit = repoMeta.Commit;
-        var candidates = SourceLinkMatcher.GuessFilePathsFromSymbol(request.Symbol);
+        var candidates = SourceLinkMatcher.GuessFilePathsFromSymbol(request.Symbol).ToList();
 
         foreach (var candidate in candidates)
         {
@@ -395,8 +392,7 @@ public class NuGetAdapter : ISourceAdapter
             request.Symbol
         );
 
-        var shortName = SourceLinkMatcher
-            .GuessFilePathsFromSymbol(request.Symbol)
+        var shortName = candidates
             .Select(p => Path.GetFileName(p))
             .FirstOrDefault();
 

@@ -394,6 +394,43 @@ public class NuGetAdapter : ISourceAdapter
         );
     }
 
+    private static SourceResult BuildFileResult(SymbolRequest request, SourceFileLocation location)
+    {
+        var startLine = location.StartLine ?? 1;
+        var endLine = location.EndLine ?? startLine;
+
+        var url = GitHubAdapter.BuildPermalink(
+            location.Repository,
+            location.Commit,
+            location.FilePath,
+            startLine,
+            endLine
+        );
+
+        var entry = new SourceEntry(
+            Kind: "nuget",
+            Repository: location.Repository,
+            Commit: location.Commit,
+            Path: location.FilePath,
+            Url: url,
+            StartLine: startLine,
+            EndLine: endLine
+        );
+
+        return new SourceResult(
+            Resolved: true,
+            CanonicalSymbol: request.Symbol,
+            ResolutionKind: ResolutionKind.NuGet,
+            Confidence: string.IsNullOrEmpty(location.Commit)
+                ? ResolutionConfidence.Medium
+                : ResolutionConfidence.High,
+            Sources: [entry],
+            Snippets: [],
+            Diagnostics: [],
+            ResolverVersion: ResolverVersionProvider.Version
+        );
+    }
+
     private async Task<SourceResult> BuildResultWithSnippetAsync(
         SymbolRequest request,
         SourceFileLocation location,
@@ -432,42 +469,5 @@ public class NuGetAdapter : ISourceAdapter
         }
 
         return BuildFileResult(request, location);
-    }
-
-    private static SourceResult BuildFileResult(SymbolRequest request, SourceFileLocation location)
-    {
-        var startLine = location.StartLine ?? 1;
-        var endLine = location.EndLine ?? startLine;
-
-        var url = GitHubAdapter.BuildPermalink(
-            location.Repository,
-            location.Commit,
-            location.FilePath,
-            startLine,
-            endLine
-        );
-
-        var entry = new SourceEntry(
-            Kind: "nuget",
-            Repository: location.Repository,
-            Commit: location.Commit,
-            Path: location.FilePath,
-            Url: url,
-            StartLine: startLine,
-            EndLine: endLine
-        );
-
-        return new SourceResult(
-            Resolved: true,
-            CanonicalSymbol: request.Symbol,
-            ResolutionKind: ResolutionKind.NuGet,
-            Confidence: string.IsNullOrEmpty(location.Commit)
-                ? ResolutionConfidence.Medium
-                : ResolutionConfidence.High,
-            Sources: [entry],
-            Snippets: [],
-            Diagnostics: [],
-            ResolverVersion: ResolverVersionProvider.Version
-        );
     }
 }

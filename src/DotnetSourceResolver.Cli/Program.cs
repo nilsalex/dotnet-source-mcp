@@ -2,6 +2,8 @@ using System.CommandLine;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetSourceResolver.Core.Models;
+using DotnetSourceResolver.Core.Models.NuGet;
+using DotnetSourceResolver.Core.NuGet;
 using DotnetSourceResolver.Core.Resolution;
 using DotnetSourceResolver.Core.Sources;
 using Microsoft.Extensions.Logging;
@@ -58,6 +60,15 @@ resolveCommand.SetAction(
         var noSnippets = parseResult.GetValue(noSnippetsOption);
         var maxLines = parseResult.GetValue(maxLinesOption);
 
+        // Validate: version is required when package is given (for NuGet resolution)
+        if (!string.IsNullOrEmpty(package) && string.IsNullOrEmpty(version))
+        {
+            await Console.Error.WriteLineAsync(
+                "Error: --version is required when --package is specified."
+            );
+            return 2;
+        }
+
         using var loggerFactory = LoggerFactory.Create(b =>
             b.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Warning)
                 .SetMinimumLevel(LogLevel.Warning)
@@ -70,6 +81,10 @@ resolveCommand.SetAction(
         )
             ? envMax
             : maxLines;
+
+        var cacheDir =
+            Environment.GetEnvironmentVariable("RESOLVER_CACHE_DIR")
+            ?? Path.Combine(Path.GetTempPath(), "dotnet-source-resolver-cache");
 
         // Build adapter chain
         var githubHttp = BuildHttpClient(githubToken);
@@ -89,8 +104,41 @@ resolveCommand.SetAction(
             loggerFactory.CreateLogger<DocsSourceLinkAdapter>()
         );
 
+        var nuspecHttp = BuildHttpClient(null);
+        var nuspec = new NuSpecRepository(
+            nuspecHttp,
+            loggerFactory.CreateLogger<NuSpecRepository>()
+        );
+
+        var downloaderHttp = BuildHttpClient(null);
+        downloaderHttp.Timeout = TimeSpan.FromMinutes(2);
+        var downloader = new NuGetPackageDownloader(
+            downloaderHttp,
+            loggerFactory.CreateLogger<NuGetPackageDownloader>(),
+            new CacheConfiguration { CacheDirectory = cacheDir }
+        );
+
+        var extractor = new SourceLinkExtractor(loggerFactory.CreateLogger<SourceLinkExtractor>());
+        var matcher = new SourceLinkMatcher(loggerFactory.CreateLogger<SourceLinkMatcher>());
+
+        var locatorHttp = BuildHttpClient(githubToken);
+        var locator = new GitHubFileLocator(
+            locatorHttp,
+            loggerFactory.CreateLogger<GitHubFileLocator>()
+        );
+
+        var nuget = new NuGetAdapter(
+            nuspec,
+            downloader,
+            extractor,
+            matcher,
+            locator,
+            github,
+            loggerFactory.CreateLogger<NuGetAdapter>()
+        );
+
         var resolver = new DotNetSourceResolver(
-            [sourceDotNet, docs],
+            [sourceDotNet, docs, nuget],
             loggerFactory.CreateLogger<DotNetSourceResolver>()
         );
 

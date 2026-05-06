@@ -294,4 +294,52 @@ public class McpToolsTests : IAsyncDisposable
         var text = ((TextContentBlock)result.Messages[0].Content).Text;
         Assert.Contains("net10.0", text);
     }
+
+    // -------------------------------------------------------------------------
+    // NuGet package support
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ResolveDotnetSource_WithPackageIdAndVersion_PassesParamsToResolver()
+    {
+        var client = await GetClientAsync();
+        var tools = await client.ListToolsAsync();
+        var tool = tools.First(t => t.Name == "resolve_dotnet_source");
+
+        // The mock resolver returns success regardless of params — we just verify
+        // the tool accepts the new params without throwing.
+        var callResult = await tool.CallAsync(
+            new Dictionary<string, object?>
+            {
+                ["symbol"] = "Duende.BFF.DefaultUserService",
+                ["packageId"] = "Duende.BFF",
+                ["packageVersion"] = "3.1.0",
+            }
+        );
+
+        Assert.True(callResult.IsError != true);
+        var json = GetTextContent(callResult);
+        using var doc = JsonDocument.Parse(json);
+        Assert.True(doc.RootElement.GetProperty("Resolved").GetBoolean());
+    }
+
+    [Fact]
+    public async Task LookupPrompt_WithPackageAndVersion_IncludesBothInMessage()
+    {
+        var client = await GetClientAsync();
+        var result = await client.GetPromptAsync(
+            "lookup_dotnet_symbol",
+            new Dictionary<string, object?>
+            {
+                ["symbol"] = "Duende.BFF.DefaultUserService",
+                ["packageId"] = "Duende.BFF",
+                ["packageVersion"] = "3.1.0",
+            }
+        );
+
+        var text = ((TextContentBlock)result.Messages[0].Content).Text;
+        Assert.Contains("Duende.BFF.DefaultUserService", text);
+        Assert.Contains("Duende.BFF", text);
+        Assert.Contains("3.1.0", text);
+    }
 }

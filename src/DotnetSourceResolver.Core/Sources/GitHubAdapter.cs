@@ -114,6 +114,19 @@ public sealed class GitHubAdapter : ISourceAdapter
     }
 
     // -------------------------------------------------------------------------
+    // Low-level HTTP (used by NuGetAdapter for URL validation)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Sends a raw HTTP request using this adapter's <see cref="HttpClient"/>
+    /// (which carries the GitHub auth token if configured).
+    /// </summary>
+    public Task<HttpResponseMessage> SendRawAsync(
+        HttpRequestMessage request,
+        CancellationToken ct
+    ) => _http.SendAsync(request, ct);
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

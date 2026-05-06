@@ -21,4 +21,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetSourceResolver.Core\DotnetSourceResolver.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude TestAssets sub-projects from this project's compilation -->
+    <Compile Remove="TestAssets\**" />
+    <None Remove="TestAssets\**" />
+    <Content Remove="TestAssets\**" />
+  </ItemGroup>
 </Project>

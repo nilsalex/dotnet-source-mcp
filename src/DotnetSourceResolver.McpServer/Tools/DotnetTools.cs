@@ -24,7 +24,9 @@ public static class DotnetTools
     [Description(
         "Resolve a .NET symbol (type, method, property, …) to its exact source location. "
             + "Returns source links, GitHub permalink, code snippet, and confidence level. "
-            + "Covers BCL, ASP.NET Core, and Microsoft.Extensions.* libraries."
+            + "Covers BCL, ASP.NET Core, Microsoft.Extensions.* libraries, and NuGet packages "
+            + "with Source Link (e.g. Duende.BFF, Newtonsoft.Json, Serilog). "
+            + "For NuGet packages, provide packageId and packageVersion."
     )]
     public static async Task<string> ResolveDotnetSource(
         DotNetSourceResolver resolver,
@@ -34,7 +36,9 @@ public static class DotnetTools
             string symbol,
         [Description("NuGet package ID, e.g. 'System.Text.Json'. Optional but improves accuracy.")]
             string? packageId = null,
-        [Description("NuGet package version, e.g. '8.0.5'. Optional.")]
+        [Description(
+            "NuGet package version, e.g. '3.1.0'. Required when packageId is set for NuGet resolution."
+        )]
             string? packageVersion = null,
         [Description("Assembly name when different from the package ID. Optional.")]
             string? assemblyName = null,

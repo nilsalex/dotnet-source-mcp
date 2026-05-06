@@ -11,6 +11,9 @@ public enum ResolutionKind
     /// <summary>Resolved via a direct GitHub permalink (used when the adapter already knows the URL).</summary>
     GitHub,
 
+    /// <summary>Resolved via NuGet package metadata and/or Source Link in the package's PDB.</summary>
+    NuGet,
+
     /// <summary>Could not be resolved by any adapter.</summary>
     Unresolved,
 }

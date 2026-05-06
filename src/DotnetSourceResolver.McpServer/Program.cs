@@ -1,3 +1,5 @@
+using DotnetSourceResolver.Core.Models.NuGet;
+using DotnetSourceResolver.Core.NuGet;
 using DotnetSourceResolver.Core.Resolution;
 using DotnetSourceResolver.Core.Sources;
 using DotnetSourceResolver.McpServer.Prompts;
@@ -28,6 +30,9 @@ var maxSnippetLines = int.TryParse(
 )
     ? msl
     : 80;
+var cacheDir =
+    Environment.GetEnvironmentVariable("RESOLVER_CACHE_DIR")
+    ?? Path.Combine(Path.GetTempPath(), "dotnet-source-resolver-cache");
 
 // Register HttpClients
 builder.Services.AddHttpClient<GitHubAdapter>(c =>
@@ -45,9 +50,32 @@ builder.Services.AddHttpClient<DocsSourceLinkAdapter>(c =>
     c.DefaultRequestHeaders.Add("User-Agent", "dotnet-source-resolver/mcp")
 );
 
-// Register adapters and resolver
+builder.Services.AddHttpClient<NuSpecRepository>(c =>
+    c.DefaultRequestHeaders.Add("User-Agent", "dotnet-source-resolver/mcp")
+);
+
+builder.Services.AddHttpClient<NuGetPackageDownloader>(c =>
+{
+    c.DefaultRequestHeaders.Add("User-Agent", "dotnet-source-resolver/mcp");
+    c.Timeout = TimeSpan.FromMinutes(2);
+});
+
+builder.Services.AddHttpClient<GitHubFileLocator>(c =>
+{
+    c.DefaultRequestHeaders.Add("User-Agent", "dotnet-source-resolver/mcp");
+    if (!string.IsNullOrEmpty(githubToken))
+        c.DefaultRequestHeaders.Add("Authorization", $"token {githubToken}");
+});
+
+// NuGet infrastructure singletons
+builder.Services.AddSingleton(new CacheConfiguration { CacheDirectory = cacheDir });
+builder.Services.AddSingleton<SourceLinkExtractor>();
+builder.Services.AddSingleton<SourceLinkMatcher>();
+
+// Register adapters and resolver (order determines chain priority)
 builder.Services.AddSingleton<ISourceAdapter, SourceDotNetAdapter>();
 builder.Services.AddSingleton<ISourceAdapter, DocsSourceLinkAdapter>();
+builder.Services.AddSingleton<ISourceAdapter, NuGetAdapter>();
 builder.Services.AddSingleton(sp => new DotNetSourceResolver(
     sp.GetServices<ISourceAdapter>(),
     sp.GetRequiredService<ILogger<DotNetSourceResolver>>()
@@ -63,9 +91,16 @@ builder
             Version = DotnetSourceResolver.Core.ResolverVersionProvider.Version,
         };
         options.ServerInstructions =
-            "Resolves .NET symbols to exact source locations (BCL, ASP.NET Core, Microsoft.Extensions.*). "
-            + "Use resolve_dotnet_source to get a GitHub permalink + code snippet for any type or member. "
-            + "Prefer this tool over reflection helpers or manual GitHub browsing.";
+            "Resolves .NET symbols to exact source code locations with GitHub permalinks and code snippets.\n\n"
+            + "Coverage:\n"
+            + "- .NET BCL and framework libraries (System.*, Microsoft.*)\n"
+            + "- ASP.NET Core (Microsoft.AspNetCore.*)\n"
+            + "- Microsoft.Extensions.* (Options, DI, Logging, Configuration, etc.)\n"
+            + "- NuGet packages with Source Link (Duende.BFF, Newtonsoft.Json, Serilog, and more)\n\n"
+            + "For NuGet packages, provide packageId AND packageVersion:\n"
+            + "  symbol='Duende.BFF.DefaultUserService', packageId='Duende.BFF', packageVersion='3.1.0'\n\n"
+            + "Returns High confidence (exact file + line numbers) when Source Link is available,\n"
+            + "Medium confidence (repository root) when Source Link is missing.";
     })
     .WithStdioServerTransport()
     .WithToolsFromAssembly(typeof(DotnetTools).Assembly)
@@ -87,9 +122,10 @@ if (string.IsNullOrEmpty(githubToken))
     );
 
 startupLogger.LogInformation(
-    "Config: RESOLVER_MAX_SNIPPET_LINES={MaxLines}, RESOLVER_LOG_LEVEL={LogLevel}",
+    "Config: RESOLVER_MAX_SNIPPET_LINES={MaxLines}, RESOLVER_LOG_LEVEL={LogLevel}, RESOLVER_CACHE_DIR={CacheDir}",
     maxSnippetLines,
-    logLevel
+    logLevel,
+    cacheDir
 );
 
 await app.RunAsync();

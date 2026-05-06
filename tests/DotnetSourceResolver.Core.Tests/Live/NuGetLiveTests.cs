@@ -172,7 +172,7 @@ public class NuGetLiveTests
     }
 
     [Fact]
-    public async Task NuGetAdapter_NewtonsoftJson_JsonConvert_Resolves()
+    public async Task NuGetAdapter_NewtonsoftJson_JsonConvert_ResolvesToFileLevel()
     {
         if (!LiveTestsEnabled)
             return;
@@ -182,7 +182,7 @@ public class NuGetLiveTests
             Symbol: "Newtonsoft.Json.JsonConvert",
             PackageId: "Newtonsoft.Json",
             PackageVersion: "13.0.3",
-            IncludeSnippets: false
+            IncludeSnippets: true
         );
 
         var result = await adapter.TryResolveAsync(request, default);
@@ -191,6 +191,9 @@ public class NuGetLiveTests
         Assert.True(result.Resolved);
         Assert.Equal(ResolutionKind.NuGet, result.ResolutionKind);
         Assert.NotEmpty(result.Sources);
+        Assert.NotEmpty(result.Sources[0].Path);
+        Assert.Contains("JsonConvert", result.Sources[0].Path);
+        Assert.Single(result.Snippets);
     }
 
     [Fact]

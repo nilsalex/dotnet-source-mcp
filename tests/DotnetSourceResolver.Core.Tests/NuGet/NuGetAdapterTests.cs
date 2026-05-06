@@ -44,7 +44,8 @@ public class NuGetAdapterTests
         RepositoryMetadata? repoMeta,
         string? assemblyPath,
         SourceLinkDocument? sourceLink,
-        SnippetEntry? snippetEntry = null
+        SnippetEntry? snippetEntry = null,
+        string? locatorFilePath = null
     )
     {
         var cacheDir = Path.Combine(Path.GetTempPath(), $"nuget-adapter-test-{Guid.NewGuid()}");
@@ -117,7 +118,7 @@ public class NuGetAdapterTests
 
         // Build GitHubAdapter: HEAD returns 200 (so URL validation passes), GET returns snippet or 404
         var ghHandler = new Mock<HttpMessageHandler>();
-        // HEAD → 200 (URL exists, skip tree search)
+        // HEAD → 200 (URL exists, skip tree search) for Source Link path validation
         ghHandler
             .Protected()
             .Setup<Task<HttpResponseMessage>>(
@@ -126,6 +127,22 @@ public class NuGetAdapterTests
                 ItExpr.IsAny<CancellationToken>()
             )
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK));
+
+        // Override: HEAD → 404 for raw.githubusercontent.com (prevents no-Source-Link fallback from succeeding)
+        ghHandler
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.Is<HttpRequestMessage>(r =>
+                    r.Method == HttpMethod.Head
+                    && r.RequestUri != null
+                    && r.RequestUri.Host.Equals(
+                        "raw.githubusercontent.com",
+                        StringComparison.OrdinalIgnoreCase
+                    )),
+                ItExpr.IsAny<CancellationToken>()
+            )
+            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
 
         if (snippetEntry is not null)
         {
@@ -160,16 +177,36 @@ public class NuGetAdapterTests
             NullLogger<GitHubAdapter>.Instance
         );
 
-        // GitHubFileLocator — returns null (no tree search needed in unit tests)
+        // GitHubFileLocator — returns null by default, or a specific path if configured
         var locatorHandler = new Mock<HttpMessageHandler>();
-        locatorHandler
-            .Protected()
-            .Setup<Task<HttpResponseMessage>>(
-                "SendAsync",
-                ItExpr.IsAny<HttpRequestMessage>(),
-                ItExpr.IsAny<CancellationToken>()
-            )
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+        if (locatorFilePath is not null)
+        {
+            var treeJson = $$"""{"tree":[{"type":"blob","path":"{{locatorFilePath}}"}]}""";
+            locatorHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(
+                    new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(treeJson),
+                    }
+                );
+        }
+        else
+        {
+            locatorHandler
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
         var locator = new GitHubFileLocator(
             new System.Net.Http.HttpClient(locatorHandler.Object),
             NullLogger<GitHubFileLocator>.Instance
@@ -349,7 +386,8 @@ public class NuGetAdapterTests
         Directory.CreateDirectory(cacheDir);
         var assemblyPath = CreateAssemblyWithSourceLink(cacheDir);
 
-        var (adapter, adapterCacheDir) = BuildAdapter(ValidRepoMeta, assemblyPath, ValidSourceLink);
+        var (adapter, adapterCacheDir) = BuildAdapter(ValidRepoMeta, assemblyPath, ValidSourceLink,
+            locatorFilePath: "src/Duende/BFF/DefaultUserService.cs");
         try
         {
             var result = await adapter.TryResolveAsync(
@@ -385,7 +423,8 @@ public class NuGetAdapterTests
             ValidRepoMeta,
             assemblyPath,
             ValidSourceLink,
-            snippetEntry: dummySnippet
+            snippetEntry: dummySnippet,
+            locatorFilePath: "src/Duende/BFF/DefaultUserService.cs"
         );
         try
         {

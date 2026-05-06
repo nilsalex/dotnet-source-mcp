@@ -89,10 +89,13 @@ public class NuGetAdapter : ISourceAdapter
         if (assemblyPath is null)
         {
             _logger.LogInformation(
-                "Could not extract assembly for {PackageId} {Version}, falling back to repo root",
+                "Could not extract assembly for {PackageId} {Version}, attempting no-Source-Link fallback",
                 request.PackageId,
                 request.PackageVersion
             );
+            var noAssemblyFallback = await TryLocateWithoutSourceLinkAsync(request, repoMeta, ct);
+            if (noAssemblyFallback is not null)
+                return await BuildResultWithSnippetAsync(request, noAssemblyFallback, ct);
             return BuildRepoRootResult(request, repoMeta, ["NuGetAdapter: no assembly extracted"]);
         }
 
@@ -101,9 +104,12 @@ public class NuGetAdapter : ISourceAdapter
         if (sourceLink is null)
         {
             _logger.LogInformation(
-                "No Source Link in {AssemblyPath}, falling back to repo root",
+                "No Source Link in {AssemblyPath}, attempting no-Source-Link fallback",
                 assemblyPath
             );
+            var noSourceLinkFallback = await TryLocateWithoutSourceLinkAsync(request, repoMeta, ct);
+            if (noSourceLinkFallback is not null)
+                return await BuildResultWithSnippetAsync(request, noSourceLinkFallback, ct);
             return BuildRepoRootResult(
                 request,
                 repoMeta,
@@ -331,6 +337,102 @@ public class NuGetAdapter : ISourceAdapter
             FilePath = foundPath,
             RawUrl = rawUrl,
         };
+    }
+
+    private async Task<SourceFileLocation?> TryLocateWithoutSourceLinkAsync(
+        SymbolRequest request,
+        RepositoryMetadata repoMeta,
+        CancellationToken ct)
+    {
+        if (repoMeta.Url is null || repoMeta.Commit is null)
+            return null;
+
+        if (!TryParseGitHubRepoUrl(repoMeta.Url, out var owner, out var repo))
+            return null;
+
+        if (owner is null || repo is null)
+            return null;
+
+        var commit = repoMeta.Commit;
+        var candidates = SourceLinkMatcher.GuessFilePathsFromSymbol(request.Symbol);
+
+        foreach (var candidate in candidates)
+        {
+            var rawUrl = $"https://raw.githubusercontent.com/{owner}/{repo}/{commit}/{candidate}";
+
+            bool exists;
+            try
+            {
+                using var headReq = new HttpRequestMessage(HttpMethod.Head, rawUrl);
+                using var headResp = await _github.SendRawAsync(headReq, ct);
+                exists = headResp.IsSuccessStatusCode;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (!exists)
+                continue;
+
+            _logger.LogInformation(
+                "No-Source-Link fallback: HEAD confirmed {Url}",
+                rawUrl
+            );
+
+            return new SourceFileLocation(
+                Repository: repoMeta.Url,
+                Commit: commit,
+                FilePath: candidate,
+                RawUrl: rawUrl
+            );
+        }
+
+        _logger.LogDebug(
+            "No-Source-Link fallback: all HEAD requests failed for {Symbol}, trying tree search",
+            request.Symbol
+        );
+
+        var shortName = SourceLinkMatcher
+            .GuessFilePathsFromSymbol(request.Symbol)
+            .Select(p => Path.GetFileName(p))
+            .FirstOrDefault();
+
+        if (shortName is null)
+            return null;
+
+        var foundPath = await _locator.FindFileAsync(owner, repo, commit, shortName, ct);
+
+        if (foundPath is null)
+        {
+            _logger.LogDebug(
+                "No-Source-Link fallback: tree search found no file named {FileName} in {Owner}/{Repo}@{Commit}",
+                shortName,
+                owner,
+                repo,
+                commit
+            );
+            return null;
+        }
+
+        _logger.LogInformation(
+            "No-Source-Link fallback: tree search found {FileName} at {Path}",
+            shortName,
+            foundPath
+        );
+
+        var treeRawUrl = $"https://raw.githubusercontent.com/{owner}/{repo}/{commit}/{foundPath}";
+
+        return new SourceFileLocation(
+            Repository: repoMeta.Url,
+            Commit: commit,
+            FilePath: foundPath,
+            RawUrl: treeRawUrl
+        );
     }
 
     private static bool TryParseGitHubRepoUrl(string repoUrl, out string? owner, out string? repo)

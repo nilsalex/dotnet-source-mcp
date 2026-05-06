@@ -163,40 +163,7 @@ public class NuGetAdapter : ISourceAdapter
             );
         }
 
-        // Phase 5: Optionally fetch snippet via GitHubAdapter
-        if (request.IncludeSnippets)
-        {
-            var ghReq = new GitHubSymbolRequest(
-                Symbol: request.Symbol,
-                GitHub: new GitHubRequest(
-                    Repository: location.Repository,
-                    Commit: location.Commit,
-                    Path: location.FilePath,
-                    RawUrl: location.RawUrl,
-                    StartLine: location.StartLine ?? 1,
-                    EndLine: location.EndLine ?? int.MaxValue
-                ),
-                PackageId: request.PackageId,
-                PackageVersion: request.PackageVersion,
-                AssemblyName: request.AssemblyName,
-                TargetFramework: request.TargetFramework,
-                IncludeSnippets: true,
-                MaxSnippetLines: request.MaxSnippetLines
-            );
-
-            try
-            {
-                var ghResult = await _github.TryResolveAsync(ghReq, ct);
-                if (ghResult is not null)
-                    return ghResult with { ResolutionKind = ResolutionKind.NuGet };
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogWarning(ex, "GitHub snippet fetch failed for {Url}", location.RawUrl);
-            }
-        }
-
-        return BuildFileResult(request, location);
+        return await BuildResultWithSnippetAsync(request, location, ct);
     }
 
     // -------------------------------------------------------------------------
@@ -425,6 +392,46 @@ public class NuGetAdapter : ISourceAdapter
             Diagnostics: diagnostics,
             ResolverVersion: ResolverVersionProvider.Version
         );
+    }
+
+    private async Task<SourceResult> BuildResultWithSnippetAsync(
+        SymbolRequest request,
+        SourceFileLocation location,
+        CancellationToken ct)
+    {
+        if (request.IncludeSnippets)
+        {
+            var ghReq = new GitHubSymbolRequest(
+                Symbol: request.Symbol,
+                GitHub: new GitHubRequest(
+                    Repository: location.Repository,
+                    Commit: location.Commit,
+                    Path: location.FilePath,
+                    RawUrl: location.RawUrl,
+                    StartLine: location.StartLine ?? 1,
+                    EndLine: location.EndLine ?? int.MaxValue
+                ),
+                PackageId: request.PackageId,
+                PackageVersion: request.PackageVersion,
+                AssemblyName: request.AssemblyName,
+                TargetFramework: request.TargetFramework,
+                IncludeSnippets: true,
+                MaxSnippetLines: request.MaxSnippetLines
+            );
+
+            try
+            {
+                var ghResult = await _github.TryResolveAsync(ghReq, ct);
+                if (ghResult is not null)
+                    return ghResult with { ResolutionKind = ResolutionKind.NuGet };
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogWarning(ex, "GitHub snippet fetch failed for {Url}", location.RawUrl);
+            }
+        }
+
+        return BuildFileResult(request, location);
     }
 
     private static SourceResult BuildFileResult(SymbolRequest request, SourceFileLocation location)

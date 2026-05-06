@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using DotnetSourceResolver.Core.Models;
 using DotnetSourceResolver.Core.Models.NuGet;
 using DotnetSourceResolver.Core.NuGet;
@@ -429,7 +430,7 @@ public class NuGetAdapter : ISourceAdapter
         );
     }
 
-    private static bool TryParseGitHubRepoUrl(string repoUrl, out string? owner, out string? repo)
+    private static bool TryParseGitHubRepoUrl(string repoUrl, [NotNullWhen(true)] out string? owner, [NotNullWhen(true)] out string? repo)
     {
         owner = null;
         repo = null;

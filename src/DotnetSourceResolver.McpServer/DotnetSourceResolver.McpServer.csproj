@@ -1,4 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>DotnetSourceResolver.McpServer</PackageId>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>dotnet-source-resolver-mcp</ToolCommandName>
+    <Description>MCP server (stdio) for resolving .NET symbols to exact source code locations. Use with Claude, Copilot, or any MCP-compatible AI agent. Covers BCL, ASP.NET Core, Microsoft.Extensions.*, and NuGet packages with Source Link.</Description>
+    <PackageTags>dotnet;source;resolver;symbol;mcp;mcp-server;llm;agent</PackageTags>
+    <PackageReadme>../../README.md</PackageReadme>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\DotnetSourceResolver.Core\DotnetSourceResolver.Core.csproj" />
   </ItemGroup>
@@ -8,11 +21,4 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.7" />
     <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
 </Project>

@@ -1,18 +1,159 @@
-# dotnet-source-resolver
+# dotnet-source-mcp
 
 An MCP server that gives LLM agents precise, evidence-grounded access to .NET library source code.
 
 Instead of having an agent improvise with reflection helpers or heuristic GitHub browsing, it calls a single tool and gets back exact source links, commit SHAs, and code snippets.
 
-## What it covers (MVP)
+## Install
+
+```bash
+dotnet tool install --global DotnetSourceMcp
+```
+
+## Agent configuration
+
+### Claude Code
+
+```bash
+claude mcp add --transport stdio dotnet-source-mcp -- dotnet-source-mcp
+```
+
+Or add to `.mcp.json` in your project root (check into version control for team use):
+
+```json
+{
+  "mcpServers": {
+    "dotnet-source-mcp": {
+      "command": "dotnet-source-mcp",
+      "args": [],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### OpenCode
+
+Add to `opencode.json`:
+
+```json
+{
+  "mcp": {
+    "dotnet-source-mcp": {
+      "type": "local",
+      "command": ["dotnet-source-mcp"],
+      "environment": {
+        "GITHUB_TOKEN": "{env:GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### GitHub Copilot / VS Code
+
+Add to `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "dotnet-source-mcp": {
+      "type": "stdio",
+      "command": "dotnet-source-mcp",
+      "args": [],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### GitHub Copilot cloud agent
+
+Add the MCP configuration in your repository settings (Settings → Copilot → Cloud agent):
+
+```json
+{
+  "mcpServers": {
+    "dotnet-source-mcp": {
+      "type": "local",
+      "command": "dotnet-source-mcp",
+      "args": [],
+      "tools": ["resolve_dotnet_source", "explain_dotnet_implementation"]
+    }
+  }
+}
+```
+
+The .NET tool must be installed on the runner. Add `.github/workflows/copilot-setup-steps.yml`:
+
+```yaml
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - run: dotnet tool install --global DotnetSourceMcp
+```
+
+### Cursor
+
+Add to `.cursor/mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "dotnet-source-mcp": {
+      "command": "dotnet-source-mcp",
+      "args": [],
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### Generic (any MCP client)
+
+```json
+{
+  "mcpServers": {
+    "dotnet-source-mcp": {
+      "command": "dotnet-source-mcp",
+      "args": [],
+      "env": {
+        "GITHUB_TOKEN": "ghp_...",
+        "RESOLVER_LOG_LEVEL": "Warning"
+      }
+    }
+  }
+}
+```
+
+Find the tool path for manual config:
+
+```bash
+which dotnet-source-mcp
+```
+
+## What it covers
 
 - BCL (`System.Private.CoreLib`)
 - ASP.NET Core
 - `Microsoft.Extensions.*`
 - Any Microsoft library indexed on [source.dot.net](https://source.dot.net)
 - Public API entries on [learn.microsoft.com/dotnet/api](https://learn.microsoft.com/dotnet/api)
-
-NuGet/Source Link resolution and decompilation fallback are planned for future slices.
+- NuGet packages with Source Link (provide `packageId` + `packageVersion`)
 
 ## MCP tools
 
@@ -44,42 +185,24 @@ Answers a question about an implementation, grounded in retrieved source snippet
 
 Returns: answer text, evidence (source links + snippets), confidence, caveats.
 
-## Building
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `GITHUB_TOKEN` | (none) | GitHub PAT — without it you get 60 requests/hr |
+| `RESOLVER_LOG_LEVEL` | `Warning` | `Trace`, `Debug`, `Information`, `Warning`, `Error` |
+| `RESOLVER_MAX_SNIPPET_LINES` | `80` | Global default snippet length |
+| `RESOLVER_CACHE_DIR` | `{temp}/dotnet-source-resolver-cache` | NuGet package download cache |
+
+## Development
+
+### Building
 
 ```bash
 dotnet build
 ```
 
-## Install as .NET Tool
-
-```bash
-dotnet tool install --global DotnetSourceMcp
-```
-
-Then use it in your MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "dotnet-source": {
-      "command": "dotnet-source-mcp",
-      "args": [],
-      "env": {
-        "GITHUB_TOKEN": "ghp_...",
-        "RESOLVER_LOG_LEVEL": "Warning"
-      }
-    }
-  }
-}
-```
-
-Find the tool path for manual config:
-
-```bash
-which dotnet-source-mcp
-```
-
-## Running the MCP server
+### Running from source
 
 ```bash
 dotnet run --project src/DotnetSourceResolver.McpServer
@@ -92,24 +215,7 @@ dotnet publish src/DotnetSourceResolver.McpServer -c Release -r linux-x64 --self
 ./publish/DotnetSourceResolver.McpServer
 ```
 
-## MCP client configuration
-
-```json
-{
-  "mcpServers": {
-    "dotnet-source": {
-      "command": "/path/to/DotnetSourceResolver.McpServer",
-      "args": [],
-      "env": {
-        "GITHUB_TOKEN": "ghp_...",
-        "RESOLVER_LOG_LEVEL": "Warning"
-      }
-    }
-  }
-}
-```
-
-## CLI (for debugging and interactive use)
+### CLI (for debugging)
 
 ```bash
 # Resolve a symbol
@@ -130,16 +236,7 @@ dotnet run --project src/DotnetSourceResolver.Cli -- resolve \
   --no-snippets
 ```
 
-## Configuration
-
-| Variable | Default | Description |
-|---|---|---|
-| `GITHUB_TOKEN` | (none) | GitHub PAT — without it you get 60 requests/hr |
-| `RESOLVER_LOG_LEVEL` | `Warning` | `Trace`, `Debug`, `Information`, `Warning`, `Error` |
-| `RESOLVER_MAX_SNIPPET_LINES` | `80` | Global default snippet length |
-| `RESOLVER_RUN_LIVE_TESTS` | `false` | Enable live network tests in the test suite |
-
-## Testing
+### Testing
 
 ```bash
 # Fast unit tests (no network)
@@ -159,5 +256,6 @@ DotnetSourceResolver.McpServer
 DotnetSourceResolver.Core
       ├── SourceDotNetAdapter   → source.dot.net search + file pages
       ├── DocsSourceLinkAdapter → learn.microsoft.com source links
+      ├── NuGetAdapter          → .nuspec + embedded PDB Source Link extraction
       └── GitHubAdapter         → raw file fetch + snippet extraction
 ```

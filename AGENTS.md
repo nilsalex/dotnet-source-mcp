@@ -118,6 +118,27 @@ sc.AddMcpServer()
 
 **Live tests:** Marked `[Trait("Category", "Live")]`. Guard with `if (!LiveTestsEnabled) return;` (xUnit 2.x has no `Skip.If`). Run with `RESOLVER_RUN_LIVE_TESTS=true dotnet test --filter "Category=Live"`.
 
+## Version management
+
+Versions are managed by **MinVer** — no hardcoded `<Version>` in any csproj. MinVer reads git tags at build time and sets `Version`, `PackageVersion`, `AssemblyVersion`, `FileVersion`, `InformationalVersion` automatically.
+
+- Tag prefix: `v` (configured via `<MinVerTagPrefix>v</MinVerTagPrefix>` in `Directory.Build.props`)
+- To release: `git tag v0.2.0 && git push --tags`
+- Between tags: MinVer auto-increments patch + adds `alpha.0.{height}` prerelease (e.g. `0.1.1-alpha.0.5`)
+- No tags at all: `0.0.0-alpha.0`
+- `ResolverVersionProvider` reads `AssemblyInformationalVersionAttribute` — no changes needed, MinVer sets it
+
+## NuGet tool packages
+
+Two .NET Tool packages are published via the CI workflow (`.github/workflows/publish.yml`):
+
+| Package | `ToolCommandName` | Install |
+|---|---|---|
+| `DotnetSourceResolver.Cli` | `dotnet-source-resolver` | `dotnet tool install --global DotnetSourceResolver.Cli` |
+| `DotnetSourceResolver.McpServer` | `dotnet-source-resolver-mcp` | `dotnet tool install --global DotnetSourceResolver.McpServer` |
+
+Publishing uses **NuGet Trusted Publishing** (OIDC) — no stored API key. The `publish` job requires the `publish` GitHub environment.
+
 ## Environment variables
 
 | Variable | Default | Effect |

@@ -1,6 +1,5 @@
 <Project>
   <PropertyGroup>
-    <Version>0.1.0</Version>
     <Authors>nilsalex</Authors>
     <Copyright>Copyright © Nils Alex</Copyright>
     <RepositoryUrl>https://github.com/nilsalex/dotnet-mcp</RepositoryUrl>
@@ -12,9 +11,11 @@
     <DebugType>portable</DebugType>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.203" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="7.0.0" PrivateAssets="All" />
   </ItemGroup>
 </Project>

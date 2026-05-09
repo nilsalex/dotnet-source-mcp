@@ -23,7 +23,9 @@ dotnet run --project src/DotnetSourceResolver.Cli -- resolve \
 dotnet build
 
 # Format all C# files (CSharpier, installed as local tool)
-dotnet csharpier format .
+dotnet csharpier .
+# Check formatting without writing changes
+dotnet csharpier check .
 ```
 
 ## Project layout
@@ -37,7 +39,7 @@ dotnet csharpier format .
 | `tests/DotnetSourceResolver.Core.Tests` | Unit tests (123) + live tests (6) |
 | `tests/DotnetSourceResolver.McpServer.Tests` | In-process MCP integration tests (13) |
 
-Target: **net10.0** throughout. Solution file: `DotnetSourceResolver.sln`.
+Target: **net10.0** throughout. Solution file: `DotnetSourceResolver.slnx`.
 
 ## Adapter chain (Core)
 
@@ -86,7 +88,7 @@ Agent-facing context is provided through two mechanisms — keep both accurate w
 
 ## MCP SDK quirks
 
-- Package: `ModelContextProtocol` v1.2.0 (not `ModelContextProtocol.Core`)
+- Package: `ModelContextProtocol` v1.3.0 (not `ModelContextProtocol.Core`)
 - `McpServer` conflicts with the project namespace `DotnetSourceResolver.McpServer` — alias it: `using McpServerType = ModelContextProtocol.Server.McpServer;`
 - Use `tool.CallAsync(IReadOnlyDictionary<string,object?>)` in tests — **not** `InvokeAsync` (which requires `AIFunctionArguments`)
 - Read tool result text with `result.Content.OfType<TextContentBlock>().First().Text`

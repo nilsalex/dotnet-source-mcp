@@ -393,9 +393,7 @@ public class NuGetAdapter : ISourceAdapter
             request.Symbol
         );
 
-        var shortName = candidates
-            .Select(p => Path.GetFileName(p))
-            .FirstOrDefault();
+        var shortName = candidates.Select(p => Path.GetFileName(p)).FirstOrDefault();
 
         if (shortName is null)
             return null;
@@ -430,7 +428,11 @@ public class NuGetAdapter : ISourceAdapter
         );
     }
 
-    private static bool TryParseGitHubRepoUrl(string repoUrl, [NotNullWhen(true)] out string? owner, [NotNullWhen(true)] out string? repo)
+    private static bool TryParseGitHubRepoUrl(
+        string repoUrl,
+        [NotNullWhen(true)] out string? owner,
+        [NotNullWhen(true)] out string? repo
+    )
     {
         owner = null;
         repo = null;

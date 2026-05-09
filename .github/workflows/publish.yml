@@ -23,7 +23,6 @@ jobs:
 
       - run: dotnet test --filter "Category!=Live" -c Release
 
-      - run: dotnet pack src/DotnetSourceResolver.Cli -c Release --output ./artifacts
       - run: dotnet pack src/DotnetSourceResolver.McpServer -c Release --output ./artifacts
 
       - uses: actions/upload-artifact@v4

@@ -128,14 +128,15 @@ Versions are managed by **MinVer** — no hardcoded `<Version>` in any csproj. M
 - No tags at all: `0.0.0-alpha.0`
 - `ResolverVersionProvider` reads `AssemblyInformationalVersionAttribute` — no changes needed, MinVer sets it
 
-## NuGet tool packages
+## NuGet tool package
 
-Two .NET Tool packages are published via the CI workflow (`.github/workflows/publish.yml`):
+One .NET Tool package is published via the CI workflow (`.github/workflows/publish.yml`):
 
 | Package | `ToolCommandName` | Install |
 |---|---|---|
-| `DotnetSourceResolver.Cli` | `dotnet-source-resolver` | `dotnet tool install --global DotnetSourceResolver.Cli` |
-| `DotnetSourceResolver.McpServer` | `dotnet-source-resolver-mcp` | `dotnet tool install --global DotnetSourceResolver.McpServer` |
+| `DotnetSourceMcp` | `dotnet-source-mcp` | `dotnet tool install --global DotnetSourceMcp` |
+
+The CLI project (`DotnetSourceResolver.Cli`) is kept for local debugging (`dotnet pack` + `dotnet tool install` from local source) but is not published to NuGet.org.
 
 Publishing uses **NuGet Trusted Publishing** (OIDC) — no stored API key. The `publish` job requires the `publish` GitHub environment.
 

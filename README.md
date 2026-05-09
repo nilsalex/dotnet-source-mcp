@@ -52,26 +52,17 @@ dotnet build
 
 ## Install as .NET Tool
 
-### CLI
-
 ```bash
-dotnet tool install --global DotnetSourceResolver.Cli
-dotnet-source-resolver resolve --symbol "System.Text.StringBuilder" --tfm net10.0
+dotnet tool install --global DotnetSourceMcp
 ```
 
-### MCP Server
-
-```bash
-dotnet tool install --global DotnetSourceResolver.McpServer
-```
-
-Then use the tool path in your MCP client config:
+Then use it in your MCP client config:
 
 ```json
 {
   "mcpServers": {
     "dotnet-source": {
-      "command": "dotnet-source-resolver-mcp",
+      "command": "dotnet-source-mcp",
       "args": [],
       "env": {
         "GITHUB_TOKEN": "ghp_...",
@@ -85,7 +76,7 @@ Then use the tool path in your MCP client config:
 Find the tool path for manual config:
 
 ```bash
-which dotnet-source-resolver-mcp
+which dotnet-source-mcp
 ```
 
 ## Running the MCP server

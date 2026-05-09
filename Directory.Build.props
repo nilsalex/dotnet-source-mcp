@@ -2,10 +2,10 @@
   <PropertyGroup>
     <Authors>nilsalex</Authors>
     <Copyright>Copyright © Nils Alex</Copyright>
-    <RepositoryUrl>https://github.com/nilsalex/dotnet-mcp</RepositoryUrl>
+    <RepositoryUrl>https://github.com/nilsalex/dotnet-source-mcp</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/nilsalex/dotnet-mcp</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/nilsalex/dotnet-source-mcp</PackageProjectUrl>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <DebugType>portable</DebugType>

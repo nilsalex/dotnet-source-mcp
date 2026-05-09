@@ -4,11 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PackageId>DotnetSourceResolver.Cli</PackageId>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-source-resolver</ToolCommandName>
-    <Description>CLI tool for resolving .NET symbols to exact source code locations with GitHub permalinks and snippets. Covers BCL, ASP.NET Core, Microsoft.Extensions.*, and NuGet packages with Source Link.</Description>
-    <PackageTags>dotnet;source;resolver;symbol;mcp;cli</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,9 +15,5 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.7" />
     <PackageReference Include="System.CommandLine" Version="3.0.0-preview.3.26207.106" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="../../README.md" Pack="true" PackagePath="/README.md" />
   </ItemGroup>
 </Project>
